@@ -3,6 +3,7 @@ import time
 import os
 import sys
 import os.path as osp
+from model import CNN
 
 import torch
 from torch import nn
@@ -47,6 +48,16 @@ class Trainer:
 
 
     def train(self, epochs, save_interval, eval_interval):
+        vgg = CNN()
+        vgg_path = os.path.join("..", "image_classification", "saved", "20250518_155537_CNN", "ckpt", "8.pth")
+        vgg.load_state_dict(torch.load(vgg_path))
+        vgg.eval()
+        vgg.to(self.device)
+        # transforms.Compose([
+        #     transforms.Resize((32,32)),
+        #     transforms.ToTensor(),
+        # ])
+        mse = nn.MSELoss()
         for epoch in range(epochs):
             self.model.train()
             self.logger.info("Epoch = %d" % epoch)
@@ -56,6 +67,10 @@ class Trainer:
                 target = target.to(self.device)
                 output = self.model(x)
                 loss = self.loss_fn(output, target)
+                f1 = vgg.backbone(output)
+                f2 = vgg.backbone(target)
+                f_loss = mse(f1, f2)
+                loss += f_loss
                 self.logger.debug("[Train %d:%d] loss=%.6f" % (epoch, step, float(loss.detach().cpu())))
                 loss.backward()
                 self.optimizer.step()
@@ -76,8 +91,12 @@ class Trainer:
                     output = self.model(x)
                     loss = self.loss_fn(output, target)
                     total += x.shape[0]
-                    psnr += 20 * torch.log10(1 / (nn.MSELoss()(output, target))) * x.shape[0]
+                    psnr += 20 * torch.log10(1 / (mse(output, target))) * x.shape[0]
                     self.logger.info("[Test %d:%d] loss=%.6f" % (epoch, step, float(loss.detach().cpu())))
+                    f1 = vgg.backbone(output)
+                    f2 = vgg.backbone(target)
+                    f_loss = mse(f1, f2)
+                    self.logger.info("[Test %d:%d] vgg loss=%.6f" % (epoch, step, float(f_loss.detach().cpu())))
                 psnr = psnr / total
                 self.logger.info("[Test %d:%d] psnr=%.6f" % (epoch, step, float(psnr.detach().cpu())))
                 self.optimizer.zero_grad()
